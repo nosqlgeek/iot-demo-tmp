@@ -30,8 +30,16 @@
 #define WIFI_SSID "RedisLabsGuest"
 #define WIFI_PASS "redisredis"
 
+#define REDISHOST "redis-14658.demo.francois.demo-rlec.redislabs.com"
+#define REDISPORT 14658
+
 #include <ESP8266WiFi.h>
+#include "RedisCommand.h"
 #include "tools.h"
+
+
+WiFiClient redisConnection;
+IPAddress redisIP;
 
 /********/
 /* Main */
@@ -71,9 +79,57 @@ void setup() {
 
 unsigned long lastSensorRead=0;
 
+RedisCommand_t cmd;
+char* szRESP;
+
 void loop() {
   STATS_LOOP
 
+   if (!redisConnection.connected()) {
+      DEBUG_PRINT("Opening connection to ");
+      DEBUG_PRINT(REDISHOST);
+      DEBUG_PRINT("(");
+  
+      WiFi.hostByName(REDISHOST, redisIP);
+      DEBUG_PRINT(redisIP);
+      DEBUG_PRINT("):");
+      DEBUG_PRINT(REDISPORT);
+      DEBUG_PRINT("...");
+      
+      if (!redisConnection.connect(redisIP, REDISPORT)) {
+        DEBUG_PRINTLN(" Failed");
+      } else {
+        DEBUG_PRINTLN(" Succeed");
+      }
+
+      // Send hardcoded AUTH in RESP
+      redisConnection.write("*2\r\n$4\r\nAUTH\r\n$3\r\niot\r\n" );
+   }
+
+   rediscommand_init(cmd);
+   rediscommand_add(cmd, "LPUSH");
+   rediscommand_add(cmd, (String("v:")+WiFi.macAddress()).c_str());
+   rediscommand_add(cmd, analogRead(0));
+   szRESP=rediscommand_tochar(cmd);
+   redisConnection.print(szRESP);
+   free(szRESP);
+
+   rediscommand_init(cmd);
+   rediscommand_add(cmd, "PUBLISH");
+   rediscommand_add(cmd,"refreshvalues");
+   rediscommand_add(cmd, WiFi.macAddress().c_str());
+   szRESP=rediscommand_tochar(cmd);
+   redisConnection.print(szRESP);
+   free(szRESP);
+   
+
+   // Expect a reply and busy (bad) wait for it
+   while(redisConnection.available()==0);
+   // Output to the console all the received bytes as chars
+   while(redisConnection.available()!=0)
+    Serial.print((char)redisConnection.read());
+
+  /*
   if ((millis() - lastSensorRead)>5000) {
     PROF_START(SensorRead);
     Serial.print("Sensor value (0-1024) : ");
@@ -81,4 +137,6 @@ void loop() {
     PROF_STOP(SensorRead);
     lastSensorRead = millis();
   }
+  */
+  
 }
